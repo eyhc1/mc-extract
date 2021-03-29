@@ -1,4 +1,4 @@
-# minecraft-assets-extractor
+# minecraft assets extractor
 A simple program that will extract the default Minecraft resourcepack from its root directory and change it into a real resourcepack folder, so you can use it to make your own. original game files NOT incloded.
 
 ## How to use
