@@ -1,46 +1,32 @@
-import os, sys, requests, shutil, json, time
-import rich_click as click
+import os, sys, requests, shutil, json, time, warnings
 import rich.traceback
-from rich.progress import (
-    Progress,
-    BarColumn,
-    TaskProgressColumn,
-    TimeRemainingColumn,
-    TextColumn,
-)
+import tqdm
+from cyclopts import App
 from rich import print
-
+from tqdm.rich import tqdm as bar
 requests.packages.urllib3.disable_warnings(
     requests.packages.urllib3.exceptions.InsecureRequestWarning
 )  # supress warning
+warnings.filterwarnings("ignore", category=tqdm.TqdmExperimentalWarning)
 rich.traceback.install()
 
+app = App(help="Minecraft Asset Extractor", version="0.1.1")
 
-@click.command(help="Extract Minecraft assets from the game files")
-@click.option(
-    "--mc_version",
-    "-v",
-    required=True,
-    help="The version of Minecraft you want to extract assets from",
-)
-@click.option(
-    "--target_path",
-    "-p",
-    help="The destination where all files will be extracted to. Default is ~/Downloads/MCDefault_{mc_version}",
-)
-@click.option(
-    "--mc_dir",
-    "-d",
-    help="The .minecraft folder where all game files has stored. Default is whatever Mojang uses",
-)
+@app.default
 def main(mc_version: str, target_path: str = None, mc_dir: str = None):
+    """
+    Extract Minecraft assets from the game files
+    :param mc_version: The version of Minecraft you want to extract
+    :param target_path: The destination where all files will be extracted to. Default is ~/Downloads/MCDefault_{mc_version}
+    :param mc_dir: The .minecraft folder where all game files has stored. Default is whatever Mojang uses
+    """
     if not target_path:
         target_path = os.path.join(
             os.path.expanduser("~"), "Downloads", f"MCDefault_{mc_version}"
         )
     if not mc_dir:
         mc_dir = get_mc_default_path()
-    version = find_version(mc_version, mc_dir, dest=target_path)
+    version = find_version(mc_version, mc_dir)
     if version:
         parse_assets(version, mc_dir, target_path)
     else:
@@ -48,14 +34,12 @@ def main(mc_version: str, target_path: str = None, mc_dir: str = None):
         download_assets(mc_version, target_path)
     print("Done!")
 
-
+@app.command
 def find_version(
-    version: str, mc_path: str, dest: str = os.path.join(os.getcwd(), "MCDefault")
+    version: str, mc_path: str
 ):
     """
     find the appropriate asset json from the given version in the version json
-    :param dest: Optional, destination for the file extracted to. This parameter is mainly used when need to download
-    assets from web. Default value is to create a folder "MCDefault" in the same directory as this program file.
     :param version: The minecraft version you want, such as 1.16.5
     :param mc_path: minecraft game folder to check everything
     :return: a json about asset indexes, such as 1.16 in the case of 1.16.5. None if there is no versions
@@ -138,7 +122,7 @@ def parse_assets(input_file: str, mc_path: str, dest: str):
             "refer to 'MissingFiles.json generated right next to this program!"
         )
 
-
+@app.command
 def download_assets(
     version: str, local_path: str, verify: bool = False, trust_env: bool = False
 ):
@@ -146,6 +130,8 @@ def download_assets(
     download assets from Mojang's server
     :param version: input versions
     :param local_path: destination where all files will be extracted to
+    :param verify: whether to verify the SSL certificate.
+    :param trust_env: whether to trust the environment for proxy settings.
     :raise AssertionError: the input version is not valid
     """
     version_url = None
@@ -159,37 +145,26 @@ def download_assets(
         if version in i["id"]:
             version_url = i["url"]
     # input a wrong version
-    assert version_url, "Invalid or unsupported version"
+    if not version_url:
+        raise ValueError("Invalid or unsupported version!")
 
     items = (
         session.get(session.get(version_url).json()["assetIndex"]["url"])
         .json()["objects"]
         .items()
     )
-
-    progress = Progress(
-        TextColumn(
-            "[bold blue]Downloading {task.fields[name]} as {task.fields[filename]}"
-        ),
-        BarColumn(bar_width=None),
-        TextColumn(
-            "[bright_cyan]({task.completed} out of {task.total})", justify="right"
-        ),
-        TaskProgressColumn(justify="right", show_speed=True),
-        TimeRemainingColumn(compact=True),
-        expand=True,
-    )
-    with progress:
-        task = progress.add_task("", filename="", name="", total=len(items))
-        for k, version in items:
-            dirs = k.split("/")
-            progress.update(task, advance=1, filename=dirs[-1], name=version["hash"])
-            download_asset(
-                os.path.join(os.getcwd(), local_path, *dirs[:-1]),
-                dirs[-1],
-                version["hash"],
-                session,
-            )
+    
+    # create the destination directory if it doesn't exist
+    os.makedirs(local_path, exist_ok=True)
+    
+    for k, version in bar(items, desc="Downloading assets", unit="Files"):
+        dirs = k.split("/")
+        download_asset(
+            os.path.join(os.getcwd(), local_path, *dirs[:-1]),
+            dirs[-1],
+            version["hash"],
+            session,
+        )
 
 
 def download_asset(
@@ -229,8 +204,4 @@ def get_mc_default_path():
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        print(f"An error occurred: {e}")
-        sys.exit(1)
+    sys.exit(app())
