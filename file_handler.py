@@ -34,17 +34,19 @@ def main(mc_version: str, target_path: str = None, mc_dir: str = None):
         download_assets(mc_version, target_path)
     print("Done!")
 
-@app.command
+@app.command(name="json")
 def find_version(
-    version: str, mc_path: str
+    version: str, mc_path: str = None
 ):
     """
     find the appropriate asset json from the given version in the version json
     :param version: The minecraft version you want, such as 1.16.5
-    :param mc_path: minecraft game folder to check everything
-    :return: a json about asset indexes, such as 1.16 in the case of 1.16.5. None if there is no versions
+    :param mc_path: minecraft game folder to check everything. If not given, it will use the default path
+    :return: a json about asset indexes, such as 1.16 in the case of 1.16.5. Nothing if there is no versions
     found matches the give one
     """
+    if not mc_path:
+        mc_path = get_mc_default_path()
     if not os.path.exists(
         os.path.join(mc_path, "versions", version, f"{version}.json")
     ):
@@ -122,7 +124,7 @@ def parse_assets(input_file: str, mc_path: str, dest: str):
             "refer to 'MissingFiles.json generated right next to this program!"
         )
 
-@app.command
+@app.command(name="download")
 def download_assets(
     version: str, local_path: str, verify: bool = False, trust_env: bool = False
 ):
@@ -157,14 +159,18 @@ def download_assets(
     # create the destination directory if it doesn't exist
     os.makedirs(local_path, exist_ok=True)
     
-    for k, version in bar(items, desc="Downloading assets", unit="Files"):
+    pbar = bar(items, desc="Downloading assets", unit="assets")
+    
+    for k, version in pbar:
         dirs = k.split("/")
+        pbar.set_description(f"Downloading {dirs[-1]}")
         download_asset(
             os.path.join(os.getcwd(), local_path, *dirs[:-1]),
             dirs[-1],
             version["hash"],
             session,
         )
+        
 
 
 def download_asset(
@@ -184,8 +190,11 @@ def download_asset(
             print(f"Error occurred: {e.strerror} retrying...")
             time.sleep(respawn_cd)  # Wait for `respawn_cd` seconds before retrying
 
-
+@app.command(name="get_path")
 def get_mc_default_path():
+    """ Get the default Minecraft directory path based on the operating system.
+    :return: The default Minecraft directory path.
+    """
     # Windows
     if os.name == "nt":
         return os.path.join(os.getenv("APPDATA"), ".minecraft")
